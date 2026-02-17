@@ -4,49 +4,15 @@ import { useState, useEffect } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 
-// National Averages per 100g
+// Hardcoded staples for instant offline access
 const FOOD_DATABASE = {
-  // --- PROTEINS ---
   "chicken breast": { calories: 165, protein: 31, carbs: 0, fats: 3.6, pieceWeight: 174 },
   "ground beef (80/20)": { calories: 254, protein: 17, carbs: 0, fats: 20, pieceWeight: 113 },
-  "ground turkey": { calories: 189, protein: 25, carbs: 0, fats: 10, pieceWeight: 113 },
   "egg": { calories: 155, protein: 13, carbs: 1.1, fats: 11, pieceWeight: 50 },
-  "egg white": { calories: 52, protein: 11, carbs: 0.7, fats: 0.2, pieceWeight: 33 },
-  "salmon": { calories: 208, protein: 20, carbs: 0, fats: 13, pieceWeight: 150 },
-  "tilapia": { calories: 128, protein: 26, carbs: 0, fats: 3, pieceWeight: 150 },
-  "bacon": { calories: 541, protein: 37, carbs: 1.4, fats: 42, pieceWeight: 8 },
-  "greek yogurt (plain)": { calories: 59, protein: 10, carbs: 3.6, fats: 0.4, pieceWeight: 170 },
-
-  // --- FRUITS ---
-  "apple": { calories: 52, protein: 0.3, carbs: 14, fats: 0.2, pieceWeight: 182 },
   "banana": { calories: 89, protein: 1.1, carbs: 23, fats: 0.3, pieceWeight: 118 },
-  "blueberries": { calories: 57, protein: 0.7, carbs: 14, fats: 0.3, pieceWeight: 148 },
-  "strawberries": { calories: 32, protein: 0.7, carbs: 7.7, fats: 0.3, pieceWeight: 12 },
-  "avocado": { calories: 160, protein: 2, carbs: 9, fats: 15, pieceWeight: 200 },
-  "orange": { calories: 47, protein: 0.9, carbs: 12, fats: 0.1, pieceWeight: 131 },
-
-  // --- VEGETABLES ---
-  "broccoli": { calories: 34, protein: 2.8, carbs: 7, fats: 0.4, pieceWeight: 91 },
-  "spinach": { calories: 23, protein: 2.9, carbs: 3.6, fats: 0.4, pieceWeight: 30 },
-  "potato": { calories: 77, protein: 2, carbs: 17, fats: 0.1, pieceWeight: 213 },
-  "sweet potato": { calories: 86, protein: 1.6, carbs: 20, fats: 0.1, pieceWeight: 130 },
-  "carrot": { calories: 41, protein: 0.9, carbs: 10, fats: 0.2, pieceWeight: 61 },
-
-  // --- GRAINS & CARBS ---
+  "apple": { calories: 52, protein: 0.3, carbs: 14, fats: 0.2, pieceWeight: 182 },
   "white rice (cooked)": { calories: 130, protein: 2.7, carbs: 28, fats: 0.3, pieceWeight: 186 },
-  "brown rice (cooked)": { calories: 111, protein: 2.6, carbs: 23, fats: 0.9, pieceWeight: 195 },
-  "oats (dry)": { calories: 389, protein: 16.9, carbs: 66, fats: 6.9, pieceWeight: 40 },
-  "bread (white)": { calories: 265, protein: 9, carbs: 49, fats: 3.2, pieceWeight: 25 },
-  "bread (whole wheat)": { calories: 247, protein: 13, carbs: 41, fats: 3.4, pieceWeight: 28 },
-  "pasta (cooked)": { calories: 158, protein: 5.8, carbs: 31, fats: 0.9, pieceWeight: 140 },
-  "tortilla (flour)": { calories: 297, protein: 8, carbs: 50, fats: 8, pieceWeight: 45 },
-
-  // --- PANTRY & FATS ---
   "peanut butter": { calories: 588, protein: 25, carbs: 20, fats: 50, pieceWeight: 16 },
-  "butter": { calories: 717, protein: 0.9, carbs: 0.1, fats: 81, pieceWeight: 14 },
-  "olive oil": { calories: 884, protein: 0, carbs: 0, fats: 100, pieceWeight: 14 },
-  "almonds": { calories: 579, protein: 21, carbs: 22, fats: 50, pieceWeight: 1 },
-  "cheese (cheddar)": { calories: 403, protein: 25, carbs: 1.3, fats: 33, pieceWeight: 28 },
 };
 
 export default function ManualEntry({ onAdd, onClose, initialData }) {
@@ -58,8 +24,9 @@ export default function ManualEntry({ onAdd, onClose, initialData }) {
 
   const [showMicros, setShowMicros] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
 
-  // Logic to initialize the nutrient fields with ALL possible micros
+  // Initialize nutrients from existing log, scan data, or defaults
   const [manualNutrients, setManualNutrients] = useState(() => {
     if (initialData) {
       const source = initialData.product ? initialData.product.nutriments : initialData;
@@ -68,40 +35,69 @@ export default function ManualEntry({ onAdd, onClose, initialData }) {
         protein: source.protein || source['proteins_100g'] || source['proteins_serving'] || 0,
         carbs: source.carbs || source['carbohydrates_100g'] || source['carbohydrates_serving'] || 0,
         fats: source.fats || source['fat_100g'] || source['fat_serving'] || 0,
-        fiber: source.fiber || source['fiber_100g'] || source['fiber_serving'] || 0,
-        sodium: source.sodium || source['sodium_100g'] || source['sodium_serving'] || 0,
-        potassium: source.potassium || source['potassium_100g'] || source['potassium_serving'] || 0,
-        sugar: source.sugar || source['sugars_100g'] || source['sugars_serving'] || 0,
-        iron: source.iron || source['iron_100g'] || source['iron_serving'] || 0,
-        calcium: source.calcium || source['calcium_100g'] || source['calcium_serving'] || 0,
-        magnesium: source.magnesium || source['magnesium_100g'] || source['magnesium_serving'] || 0,
-        zinc: source.zinc || source['zinc_100g'] || source['zinc_serving'] || 0,
-        vitA: source.vitA || source['vitamin-a_100g'] || source['vitamin-a_serving'] || 0,
-        vitC: source.vitC || source['vitamin-c_100g'] || source['vitamin-c_serving'] || 0,
-        vitD: source.vitD || source['vitamin-d_100g'] || source['vitamin-d_serving'] || 0,
-        vitB12: source.vitB12 || source['vitamin-b12_100g'] || source['vitamin-b12_serving'] || 0,
+        fiber: source.fiber || source['fiber_100g'] || 0,
+        sodium: source.sodium || source['sodium_100g'] || 0,
+        potassium: source.potassium || source['potassium_100g'] || 0,
+        sugar: source.sugar || source['sugars_100g'] || 0,
+        iron: source.iron || source['iron_100g'] || 0,
+        calcium: source.calcium || source['calcium_100g'] || 0,
+        magnesium: source.magnesium || source['magnesium_100g'] || 0,
+        zinc: source.zinc || source['zinc_100g'] || 0,
+        vitA: source.vitA || source['vitamin-a_100g'] || 0,
+        vitC: source.vitC || source['vitamin-c_100g'] || 0,
+        vitD: source.vitD || source['vitamin-d_100g'] || 0,
+        vitB12: source.vitB12 || source['vitamin-b12_100g'] || 0,
       };
     }
     return null;
   });
 
-  // Learning Database Search (Case-insensitive fix)
+  // HYBRID SEARCH: Firebase History + Open Food Facts API
   useEffect(() => {
-    const searchLearningDB = async () => {
+    const searchDatabases = async () => {
       const term = form.name.toLowerCase().trim();
       if (term.length < 2) { setSuggestions([]); return; }
+      
+      setIsSearching(true);
       try {
+        // 1. Search Personal Firebase History
         const q = query(
           collection(db, "products"),
           where("product_name", ">=", term),
           where("product_name", "<=", term + '\uf8ff'),
-          limit(4)
+          limit(3)
         );
         const snapshot = await getDocs(q);
-        setSuggestions(snapshot.docs.map(doc => doc.data()));
-      } catch (err) { console.error("Search error:", err); }
+        let results = snapshot.docs.map(doc => ({ ...doc.data(), source: 'History' }));
+
+        // 2. Fallback to Open Food Facts Search API
+        if (results.length < 5) {
+          const res = await fetch(
+            `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${term}&search_simple=1&action=process&json=1&page_size=5`
+          );
+          const data = await res.json();
+          const apiResults = data.products
+            .filter(p => p.product_name)
+            .map(p => ({
+              product_name: p.product_name,
+              brands: p.brands || "Global DB",
+              nutriments: p.nutriments,
+              source: 'Global'
+            }));
+          
+          // Merge and avoid duplicates
+          results = [...results, ...apiResults.filter(ap => !results.some(r => r.product_name.toLowerCase() === ap.product_name.toLowerCase()))];
+        }
+
+        setSuggestions(results);
+      } catch (err) {
+        console.error("Search failed:", err);
+      } finally {
+        setIsSearching(false);
+      }
     };
-    const timer = setTimeout(searchLearningDB, 300);
+
+    const timer = setTimeout(searchDatabases, 400);
     return () => clearTimeout(timer);
   }, [form.name]);
 
@@ -150,37 +146,35 @@ export default function ManualEntry({ onAdd, onClose, initialData }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (typeof onAdd === 'function') {
-      onAdd({
-        product_name: form.name,
-        brands: initialData?.brand || initialData?.product?.brands || 'Manual Entry',
-        nutriments: {
-          'energy-kcal_serving': Number(displayData.calories),
-          'proteins_serving': Number(displayData.protein),
-          'carbohydrates_serving': Number(displayData.carbs),
-          'fat_serving': Number(displayData.fats),
-          'fiber_serving': Number(displayData.fiber),
-          'sodium_serving': Number(displayData.sodium),
-          'potassium_serving': Number(displayData.potassium),
-          'sugars_serving': Number(displayData.sugar),
-          'iron_serving': Number(displayData.iron),
-          'calcium_serving': Number(displayData.calcium),
-          'magnesium_serving': Number(displayData.magnesium),
-          'zinc_serving': Number(displayData.zinc),
-          'vitamin-a_serving': Number(displayData.vitA),
-          'vitamin-c_serving': Number(displayData.vitC),
-          'vitamin-d_serving': Number(displayData.vitD),
-          'vitamin-b12_serving': Number(displayData.vitB12),
-        }
-      });
-    }
+    onAdd({
+      product_name: form.name,
+      brands: initialData?.brand || initialData?.product?.brands || 'Manual Entry',
+      nutriments: {
+        'energy-kcal_serving': Number(displayData.calories),
+        'proteins_serving': Number(displayData.protein),
+        'carbohydrates_serving': Number(displayData.carbs),
+        'fat_serving': Number(displayData.fats),
+        'fiber_serving': Number(displayData.fiber),
+        'sodium_serving': Number(displayData.sodium),
+        'potassium_serving': Number(displayData.potassium),
+        'sugars_serving': Number(displayData.sugar),
+        'iron_serving': Number(displayData.iron),
+        'calcium_serving': Number(displayData.calcium),
+        'magnesium_serving': Number(displayData.magnesium),
+        'zinc_serving': Number(displayData.zinc),
+        'vitamin-a_serving': Number(displayData.vitA),
+        'vitamin-c_serving': Number(displayData.vitC),
+        'vitamin-d_serving': Number(displayData.vitD),
+        'vitamin-b12_serving': Number(displayData.vitB12),
+      }
+    });
   };
 
   return (
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 z-50 overflow-y-auto">
       <div className="bg-white w-full max-w-md p-6 rounded-[2rem] shadow-2xl animate-in slide-in-from-bottom duration-300 relative my-auto">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="font-black text-2xl text-slate-800 tracking-tight">
+          <h2 className="font-black text-2xl text-slate-800 tracking-tight uppercase">
             {initialData?.isNewFromScan ? 'Confirm Scan' : initialData ? 'Edit Entry' : 'Quick Log'}
           </h2>
           <button onClick={onClose} className="p-2 bg-slate-100 rounded-full text-slate-400">✕</button>
@@ -188,24 +182,29 @@ export default function ManualEntry({ onAdd, onClose, initialData }) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="relative">
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Food Name</label>
-            <input 
-              type="text" 
-              className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-800 outline-none focus:border-blue-500" 
-              value={form.name} 
-              placeholder="Start typing..."
-              onChange={e => { setForm({...form, name: e.target.value}); setManualNutrients(null); }} 
-            />
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Search Database</label>
+            <div className="relative">
+              <input 
+                type="text" 
+                className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-800 outline-none focus:border-blue-500 pr-12" 
+                value={form.name} 
+                placeholder="Chicken, Yogurt, Pizza..."
+                onChange={e => { setForm({...form, name: e.target.value}); setManualNutrients(null); }} 
+              />
+              {isSearching && <div className="absolute right-4 top-4 w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
+            </div>
+
             {suggestions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-100 shadow-xl rounded-2xl z-[100] overflow-hidden">
+              <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 shadow-2xl rounded-2xl z-[100] overflow-hidden max-h-60 overflow-y-auto border-t-4 border-t-blue-500">
                 {suggestions.map((s, i) => (
-                  <button 
-                    key={i} 
-                    type="button" 
-                    onClick={() => handleSelectSuggestion(s)} 
-                    className="w-full p-4 text-left hover:bg-blue-50 border-b border-slate-50 font-bold text-sm capitalize"
-                  >
-                    {s.product_name}
+                  <button key={i} type="button" onClick={() => handleSelectSuggestion(s)} className="w-full p-4 text-left hover:bg-blue-50 border-b border-slate-50 flex justify-between items-center transition-colors">
+                    <div className="flex flex-col">
+                        <span className="font-bold text-slate-800 text-sm capitalize">{s.product_name}</span>
+                        <span className="text-[10px] text-slate-400 font-bold">{s.brands}</span>
+                    </div>
+                    <span className={`text-[8px] px-2 py-1 rounded-full font-black uppercase ${s.source === 'History' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                        {s.source || 'Global'}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -213,17 +212,8 @@ export default function ManualEntry({ onAdd, onClose, initialData }) {
           </div>
 
           <div className="flex gap-2">
-            <div className="flex-[2]">
-              <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 ml-1">Quantity</label>
-              <input type="number" step="0.1" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} />
-            </div>
-            <div className="flex-1">
-              <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 ml-1">Unit</label>
-              <select className="w-full p-4 bg-slate-100 border-2 border-slate-100 rounded-2xl font-bold" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})}>
-                <option value="pc">Serving</option>
-                <option value="g">Grams</option>
-              </select>
-            </div>
+            <div className="flex-[2]"><label className="block text-[10px] font-black text-slate-400 uppercase mb-1 ml-1">Quantity</label><input type="number" step="0.1" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} /></div>
+            <div className="flex-1"><label className="block text-[10px] font-black text-slate-400 uppercase mb-1 ml-1">Unit</label><select className="w-full p-4 bg-slate-100 border-2 border-slate-100 rounded-2xl font-bold" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})}><option value="pc">Serving</option><option value="g">Grams</option></select></div>
           </div>
 
           <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100 shadow-inner">
@@ -233,6 +223,7 @@ export default function ManualEntry({ onAdd, onClose, initialData }) {
                 <input type="number" className="w-full bg-transparent font-black text-xl text-blue-900 outline-none" value={displayData.calories} onChange={e => setManualNutrients({...displayData, calories: e.target.value})} />
               </div>
             </div>
+            
             <div className="grid grid-cols-3 gap-3">
               {[
                 { k: 'protein', l: 'Protein', c: 'text-rose-500' },
@@ -246,11 +237,7 @@ export default function ManualEntry({ onAdd, onClose, initialData }) {
               ))}
             </div>
 
-            <button 
-              type="button" 
-              onClick={() => setShowMicros(!showMicros)} 
-              className="w-full mt-6 py-3 text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-100/50 rounded-2xl hover:bg-blue-100 transition-all active:scale-95"
-            >
+            <button type="button" onClick={() => setShowMicros(!showMicros)} className="w-full mt-6 py-3 text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-100/50 rounded-2xl hover:bg-blue-100 transition-all active:scale-95">
               {showMicros ? 'Hide' : 'Edit'} All Micronutrients
             </button>
 
@@ -266,23 +253,14 @@ export default function ManualEntry({ onAdd, onClose, initialData }) {
                 ].map((m) => (
                   <div key={m.k} className="bg-white p-2.5 rounded-xl border border-slate-200">
                     <label className="block text-[8px] font-black text-slate-400 uppercase mb-0.5">{m.l}</label>
-                    <input 
-                      type="number" 
-                      step="0.01" 
-                      className="w-full bg-transparent font-bold text-xs text-slate-800 outline-none" 
-                      value={displayData[m.k] || 0} 
-                      onChange={e => setManualNutrients({...displayData, [m.k]: e.target.value})} 
-                    />
+                    <input type="number" step="0.01" className="w-full bg-transparent font-bold text-xs text-slate-800 outline-none" value={displayData[m.k] || 0} onChange={e => setManualNutrients({...displayData, [m.k]: e.target.value})} />
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          <button 
-            type="submit" 
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-[2rem] shadow-xl shadow-blue-100 active:scale-95 transition-all mt-4 uppercase tracking-widest text-sm"
-          >
+          <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-[2rem] shadow-xl shadow-blue-100 active:scale-95 transition-all mt-4 uppercase tracking-widest text-sm">
             {initialData?.isNewFromScan ? 'Confirm and Log' : initialData ? 'Update Entry' : `Log ${displayData.calories || 0} kcal`}
           </button>
         </form>
