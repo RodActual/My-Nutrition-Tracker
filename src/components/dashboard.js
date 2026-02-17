@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { db } from '@/lib/firebase';
-import { doc, onSnapshot, collection, addDoc, deleteDoc, query, where, orderBy } from 'firebase/firestore';
+import { doc, onSnapshot, collection, addDoc, deleteDoc, query, where, orderBy, setDoc } from 'firebase/firestore';
 import DailyProgress from './daily-progress';
 import BarcodeScanner from './barcode-scanner';
 import WeightReminderBanner from './weight-reminder-banner';
@@ -19,18 +19,14 @@ export default function Dashboard({ userId, onSignOut }) {
   const [todaysLogs, setTodaysLogs] = useState([]); 
   const [dailyTotals, setDailyTotals] = useState({ calories: 0, protein: 0, carbs: 0, fats: 0 });
   
-  // Navigation State
   const [currentTab, setCurrentTab] = useState('home'); 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Modal & UI States
   const [isScanning, setIsScanning] = useState(false);
   const [isManualEntryOpen, setIsManualEntryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [scannedProduct, setScannedProduct] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 1. Fetch User Profile & Auto-Onboarding
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "users", userId), (docSnap) => {
       if (docSnap.exists()) {
@@ -49,7 +45,6 @@ export default function Dashboard({ userId, onSignOut }) {
     return () => unsub();
   }, [userId]);
 
-  // 2. Fetch Logs for Selected Date
   useEffect(() => {
     const logsRef = collection(db, "users", userId, "logs");
     const q = query(logsRef, where("date", "==", selectedDate), orderBy("timestamp", "desc"));
@@ -70,9 +65,9 @@ export default function Dashboard({ userId, onSignOut }) {
     return () => unsubLogs();
   }, [userId, selectedDate]);
 
-  // 3. Log Food Logic
   const logFood = async (product) => {
     const getNutrient = (keyStub) => Math.round(product.nutriments[`${keyStub}_serving`] || product.nutriments[`${keyStub}_100g`] || 0);
+    
     const foodEntry = {
       name: product.product_name || "Unknown Item",
       brand: product.brands || "",
@@ -83,9 +78,21 @@ export default function Dashboard({ userId, onSignOut }) {
       date: selectedDate,
       timestamp: new Date().toISOString()
     };
+
     try {
+      // --- LEARNING DATABASE LOGIC ---
+      // This saves the product profile to a global collection for future searching
+      if (product.product_name) {
+        const productId = product.product_name.toLowerCase().trim();
+        await setDoc(doc(db, "products", productId), {
+          product_name: product.product_name,
+          brands: product.brands || "",
+          nutriments: product.nutriments,
+          lastLogged: new Date().toISOString()
+        }, { merge: true });
+      }
+
       await addDoc(collection(db, "users", userId, "logs"), foodEntry);
-      setScannedProduct(null);
       setIsManualEntryOpen(false);
       setCurrentTab('home');
     } catch (error) { 
@@ -93,7 +100,6 @@ export default function Dashboard({ userId, onSignOut }) {
     }
   };
 
-  // 4. RESTORED: handleDelete Function
   const handleDelete = async (logId) => {
     if (confirm("Remove this item?")) {
       try {
@@ -142,8 +148,6 @@ export default function Dashboard({ userId, onSignOut }) {
       </header>
 
       <div className="p-6 max-w-md mx-auto">
-        
-        {/* TAB 1: HOME */}
         {currentTab === 'home' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-left duration-300">
             <nav className="flex items-center justify-between bg-white p-2 rounded-2xl border border-slate-100 shadow-sm">
@@ -151,16 +155,13 @@ export default function Dashboard({ userId, onSignOut }) {
               <p className="text-sm font-black text-slate-800">{isToday ? "Today" : selectedDate}</p>
               <button onClick={() => changeDate(1)} className="p-2 text-slate-400">▶</button>
             </nav>
-
             <div className="bg-white p-1 rounded-[2rem] shadow-xl shadow-slate-200/50">
               {userData?.targets && <DailyProgress targets={userData.targets} current={dailyTotals} />}
             </div>
-
             <LogList logs={todaysLogs} onDelete={handleDelete} />
           </div>
         )}
 
-        {/* TAB 2: ADD */}
         {currentTab === 'add' && (
           <div className="space-y-8 animate-in zoom-in-95 duration-200">
              {!userData?.profile?.weight && (
@@ -169,9 +170,7 @@ export default function Dashboard({ userId, onSignOut }) {
                 <p className="text-blue-100 text-xs font-bold uppercase tracking-tight">Complete your profile to set calorie goals.</p>
               </div>
             )}
-            
             <WaterTracker userId={userId} date={selectedDate} />
-            
             <div className="bg-white p-6 rounded-[2rem] shadow-xl shadow-slate-200/50 border border-slate-50 space-y-6">
                 <div className="space-y-4">
                     <button onClick={() => setIsScanning(true)} className="w-full h-20 bg-blue-600 rounded-3xl shadow-lg shadow-blue-200 text-white font-black flex items-center justify-center gap-4 active:scale-95 transition-all text-lg">
@@ -182,41 +181,32 @@ export default function Dashboard({ userId, onSignOut }) {
                     </button>
                 </div>
             </div>
-
             <QuickLog onLog={logFood} />
           </div>
         )}
 
-        {/* TAB 3: INSIGHTS */}
         {currentTab === 'insights' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-right duration-300">
             <WeightChart userId={userId} />
-            <WeeklyInsights 
-                userId={userId} 
-                dailyCalorieTarget={userData?.targets?.calories || 2000} 
-            />
+            <WeeklyInsights userId={userId} dailyCalorieTarget={userData?.targets?.calories || 2000} />
           </div>
         )}
       </div>
 
-      {/* BOTTOM NAVIGATION */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-slate-100 px-6 py-4 flex justify-between items-center z-30 shadow-2xl">
         <button onClick={() => setCurrentTab('home')} className={`flex flex-col items-center gap-1 flex-1 transition-all ${currentTab === 'home' ? 'text-blue-600 scale-110' : 'text-slate-300'}`}>
           <span className="text-2xl">🏠</span>
           <span className="text-[9px] font-black uppercase">Home</span>
         </button>
-
         <button onClick={() => setCurrentTab('add')} className={`flex items-center justify-center -mt-12 w-16 h-16 rounded-full shadow-2xl transition-all border-4 border-slate-50 ${currentTab === 'add' ? 'bg-blue-600 text-white rotate-45' : 'bg-slate-800 text-white'}`}>
           <span className="text-3xl font-light">+</span>
         </button>
-
         <button onClick={() => setCurrentTab('insights')} className={`flex flex-col items-center gap-1 flex-1 transition-all ${currentTab === 'insights' ? 'text-blue-600 scale-110' : 'text-slate-300'}`}>
           <span className="text-2xl">📊</span>
           <span className="text-[9px] font-black uppercase">Charts</span>
         </button>
       </nav>
 
-      {/* MODALS */}
       {isSettingsOpen && <SettingsModal userId={userId} currentProfile={userData?.profile} onClose={() => setIsSettingsOpen(false)} />}
       {isScanning && <BarcodeScanner onResult={(p) => logFood(p)} onClose={() => setIsScanning(false)} />}
       {isManualEntryOpen && <ManualEntry onAdd={(data) => logFood(data)} onClose={() => setIsManualEntryOpen(false)} />}

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { db } from '@/lib/firebase';
+import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 
-// National Averages per 100g
-// pieceWeight is the average weight in grams for 1 "piece" or "serving"
 const FOOD_DATABASE = {
   // --- PROTEINS ---
   "chicken breast": { calories: 165, protein: 31, carbs: 0, fats: 3.6, pieceWeight: 174 },
@@ -56,6 +56,35 @@ export default function ManualEntry({ onAdd, onClose }) {
   });
 
   const [manualNutrients, setManualNutrients] = useState(null);
+  const [suggestions, setSuggestions] = useState([]);
+
+  // --- LEARNING DATABASE SEARCH ---
+  useEffect(() => {
+    const searchLearningDB = async () => {
+      // Don't search for very short strings to save Firestore reads
+      if (form.name.length < 2) {
+        setSuggestions([]);
+        return;
+      }
+      try {
+        const q = query(
+          collection(db, "products"),
+          where("product_name", ">=", form.name.toLowerCase()),
+          where("product_name", "<=", form.name.toLowerCase() + '\uf8ff'),
+          limit(4)
+        );
+        const snapshot = await getDocs(q);
+        const results = snapshot.docs.map(doc => doc.data());
+        setSuggestions(results);
+      } catch (err) {
+        console.error("Search error:", err);
+      }
+    };
+
+    // Debounce the search by 300ms to avoid spamming the DB while typing
+    const timer = setTimeout(searchLearningDB, 300);
+    return () => clearTimeout(timer);
+  }, [form.name]);
 
   // Derived Calculations
   const searchName = form.name.toLowerCase().trim();
@@ -82,26 +111,38 @@ export default function ManualEntry({ onAdd, onClose }) {
     fats: ''
   });
 
+  const handleSelectSuggestion = (prod) => {
+    setForm({ ...form, name: prod.product_name });
+    setManualNutrients({
+      calories: Math.round(prod.nutriments['energy-kcal_100g'] || prod.nutriments['energy-kcal_serving'] || 0),
+      protein: (prod.nutriments['proteins_100g'] || prod.nutriments['proteins_serving'] || 0).toFixed(1),
+      carbs: (prod.nutriments['carbohydrates_100g'] || prod.nutriments['carbohydrates_serving'] || 0).toFixed(1),
+      fats: (prod.nutriments['fat_100g'] || prod.nutriments['fat_serving'] || 0).toFixed(1),
+    });
+    setSuggestions([]);
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    onAdd({
-      product_name: `${form.name} (${form.amount}${form.unit})`,
-      brands: 'Manual Entry',
-      nutriments: {
-        'energy-kcal_100g': Number(displayData.calories),
-        'proteins_100g': Number(displayData.protein),
-        'carbohydrates_100g': Number(displayData.carbs),
-        'fat_100g': Number(displayData.fats)
-      }
-    });
+    if (typeof onAdd === 'function') {
+      onAdd({
+        product_name: form.name,
+        nutriments: {
+          'energy-kcal_100g': Number(displayData.calories),
+          'proteins_100g': Number(displayData.protein),
+          'carbohydrates_100g': Number(displayData.carbs),
+          'fat_100g': Number(displayData.fats)
+        }
+      });
+    }
   };
 
   return (
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 z-50">
-      <div className="bg-white w-full max-w-md p-6 rounded-[2rem] shadow-2xl animate-in slide-in-from-bottom duration-300">
+      <div className="bg-white w-full max-w-md p-6 rounded-[2rem] shadow-2xl animate-in slide-in-from-bottom duration-300 relative">
         
         <div className="flex justify-between items-center mb-6">
-          <h2 className="font-black text-2xl text-slate-800 tracking-tight">Manual Entry</h2>
+          <h2 className="font-black text-2xl text-slate-800 tracking-tight">Quick Log</h2>
           <button onClick={onClose} className="p-2 bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -110,8 +151,8 @@ export default function ManualEntry({ onAdd, onClose }) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Search Database</label>
+          <div className="relative">
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Search Database</label>
             <input 
               type="text" 
               placeholder="e.g. Chicken Breast, Egg, Salmon..."
@@ -122,11 +163,28 @@ export default function ManualEntry({ onAdd, onClose }) {
                 setManualNutrients(null);
               }}
             />
+            
+            {/* SUGGESTIONS DROPDOWN */}
+            {suggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-100 shadow-xl rounded-2xl z-20 overflow-hidden">
+                {suggestions.map((s, i) => (
+                  <button 
+                    key={i} 
+                    type="button"
+                    onClick={() => handleSelectSuggestion(s)} 
+                    className="w-full p-4 text-left hover:bg-blue-50 flex flex-col border-b border-slate-50 last:border-0"
+                  >
+                    <span className="font-bold text-slate-800 text-sm">{s.product_name}</span>
+                    <span className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">{s.brands || 'Learned Item'}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2">
             <div className="flex-[2]">
-              <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Quantity</label>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Quantity</label>
               <input 
                 type="number" 
                 className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-800 focus:border-blue-600 outline-none transition-all"
@@ -139,13 +197,13 @@ export default function ManualEntry({ onAdd, onClose }) {
             </div>
             
             <div className="flex-1">
-              <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Unit</label>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Unit</label>
               <select 
                 className="w-full p-4 bg-slate-100 border-2 border-slate-100 rounded-2xl font-bold text-slate-800 outline-none cursor-pointer"
                 value={form.unit}
                 onChange={e => setForm({...form, unit: e.target.value})}
               >
-                <option value="pc">Piece</option>
+                <option value="pc">Serving</option>
                 <option value="g">Grams</option>
               </select>
             </div>
