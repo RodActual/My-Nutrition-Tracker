@@ -17,7 +17,11 @@ import WeeklyInsights from './weekly-insights';
 export default function Dashboard({ userId, onSignOut }) {
   const [userData, setUserData] = useState(null);
   const [todaysLogs, setTodaysLogs] = useState([]); 
-  const [dailyTotals, setDailyTotals] = useState({ calories: 0, protein: 0, carbs: 0, fats: 0 });
+  const [dailyTotals, setDailyTotals] = useState({ 
+    calories: 0, protein: 0, carbs: 0, fats: 0,
+    fiber: 0, sodium: 0, potassium: 0, sugar: 0, calcium: 0, iron: 0, magnesium: 0, zinc: 0,
+    vitA: 0, vitC: 0, vitD: 0, vitE: 0, vitB6: 0, vitB12: 0
+  });
   
   const [currentTab, setCurrentTab] = useState('home'); 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -26,8 +30,6 @@ export default function Dashboard({ userId, onSignOut }) {
   const [isManualEntryOpen, setIsManualEntryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-
-  // State for the log currently being edited or confirmed from a scan
   const [editingLog, setEditingLog] = useState(null);
 
   useEffect(() => {
@@ -52,14 +54,34 @@ export default function Dashboard({ userId, onSignOut }) {
     const logsRef = collection(db, "users", userId, "logs");
     const q = query(logsRef, where("date", "==", selectedDate), orderBy("timestamp", "desc"));
     const unsubLogs = onSnapshot(q, (snapshot) => {
-      let totals = { calories: 0, protein: 0, carbs: 0, fats: 0 };
+      let totals = { 
+        calories: 0, protein: 0, carbs: 0, fats: 0,
+        fiber: 0, sodium: 0, potassium: 0, sugar: 0, calcium: 0, iron: 0, magnesium: 0, zinc: 0,
+        vitA: 0, vitC: 0, vitD: 0, vitE: 0, vitB6: 0, vitB12: 0
+      };
       const logs = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
+        // Standard Macros
         totals.calories += data.calories || 0;
         totals.protein += data.protein || 0;
         totals.carbs += data.carbs || 0;
         totals.fats += data.fats || 0;
+        // Micronutrients
+        totals.fiber += data.fiber || 0;
+        totals.sodium += data.sodium || 0;
+        totals.potassium += data.potassium || 0;
+        totals.sugar += data.sugar || 0;
+        totals.iron += data.iron || 0;
+        totals.calcium += data.calcium || 0;
+        totals.magnesium += data.magnesium || 0;
+        totals.zinc += data.zinc || 0;
+        // Vitamins
+        totals.vitA += data.vitA || 0;
+        totals.vitC += data.vitC || 0;
+        totals.vitD += data.vitD || 0;
+        totals.vitB12 += data.vitB12 || 0;
+
         logs.push({ id: doc.id, ...data });
       });
       setDailyTotals(totals);
@@ -69,29 +91,41 @@ export default function Dashboard({ userId, onSignOut }) {
   }, [userId, selectedDate]);
 
   const logFood = async (product, existingLogId = null) => {
-    // This helper extracts nutrients whether they are labeled as _serving or _100g
-    const getNutrient = (keyStub) => Math.round(product.nutriments[`${keyStub}_serving`] || product.nutriments[`${keyStub}_100g`] || 0);
+    const getNutrient = (keyStub) => {
+        const val = product.nutriments[`${keyStub}_serving`] || product.nutriments[`${keyStub}_100g`] || 0;
+        return Number(val);
+    };
     
     const foodEntry = {
       name: product.product_name || "Unknown Item",
       brand: product.brands || "",
-      calories: Math.round(product.nutriments['energy-kcal_serving'] || product.nutriments['energy-kcal_100g'] || 0),
-      protein: getNutrient('proteins'),
-      carbs: getNutrient('carbohydrates'),
-      fats: getNutrient('fat'),
+      calories: Math.round(getNutrient('energy-kcal')),
+      protein: Math.round(getNutrient('proteins')),
+      carbs: Math.round(getNutrient('carbohydrates')),
+      fats: Math.round(getNutrient('fat')),
+      // Micronutrients
+      fiber: getNutrient('fiber'),
+      sodium: getNutrient('sodium') * (product.brands === 'Manual Entry' ? 1 : 1000), // Adjust if manual entry is already mg
+      potassium: getNutrient('potassium'),
+      sugar: getNutrient('sugars'),
+      iron: getNutrient('iron'),
+      calcium: getNutrient('calcium'),
+      magnesium: getNutrient('magnesium'),
+      zinc: getNutrient('zinc'),
+      // Vitamins
+      vitA: getNutrient('vitamin-a'),
+      vitC: getNutrient('vitamin-c'),
+      vitD: getNutrient('vitamin-d'),
+      vitB12: getNutrient('vitamin-b12'),
       date: selectedDate,
       timestamp: editingLog?.timestamp || new Date().toISOString()
     };
 
     try {
       if (existingLogId) {
-        // UPDATE Existing Log
         await updateDoc(doc(db, "users", userId, "logs", existingLogId), foodEntry);
       } else {
-        // CREATE New Log
         await addDoc(collection(db, "users", userId, "logs"), foodEntry);
-        
-        // Save to global Learning Database for shared search
         if (product.product_name) {
           const productId = product.product_name.toLowerCase().trim();
           await setDoc(doc(db, "products", productId), {
@@ -102,22 +136,17 @@ export default function Dashboard({ userId, onSignOut }) {
           }, { merge: true });
         }
       }
-
       setEditingLog(null);
       setIsManualEntryOpen(false);
       setCurrentTab('home');
-    } catch (error) { 
-      console.error("Save error:", error); 
-    }
+    } catch (error) { console.error("Save error:", error); }
   };
 
   const handleDelete = async (logId) => {
     if (confirm("Remove this item?")) {
       try {
         await deleteDoc(doc(db, "users", userId, "logs", logId));
-      } catch (error) {
-        console.error("Delete error:", error);
-      }
+      } catch (error) { console.error("Delete error:", error); }
     }
   };
 
@@ -163,9 +192,30 @@ export default function Dashboard({ userId, onSignOut }) {
               <p className="text-sm font-black text-slate-800">{isToday ? "Today" : selectedDate}</p>
               <button onClick={() => changeDate(1)} className="p-2 text-slate-400">▶</button>
             </nav>
+
             <div className="bg-white p-1 rounded-[2rem] shadow-xl shadow-slate-200/50">
               {userData?.targets && <DailyProgress targets={userData.targets} current={dailyTotals} />}
             </div>
+
+            {/* NEW: Micronutrient Snapshot */}
+            <div className="bg-white p-6 rounded-[2rem] shadow-xl shadow-slate-200/50 border border-slate-100">
+                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Nutrient Snapshot</h3>
+                <div className="grid grid-cols-3 gap-y-6 gap-x-2">
+                    <MicroStat label="Fiber" value={dailyTotals.fiber} unit="g" color="text-emerald-600" />
+                    <MicroStat label="Sodium" value={dailyTotals.sodium} unit="mg" color="text-orange-600" />
+                    <MicroStat label="Potassium" value={dailyTotals.potassium} unit="mg" color="text-blue-600" />
+                    <MicroStat label="Sugar" value={dailyTotals.sugar} unit="g" color="text-rose-600" />
+                    <MicroStat label="Iron" value={dailyTotals.iron} unit="mg" color="text-red-600" />
+                    <MicroStat label="Calcium" value={dailyTotals.calcium} unit="mg" color="text-purple-600" />
+                </div>
+                <div className="mt-6 pt-6 border-t border-slate-50 grid grid-cols-4 gap-2">
+                    <VitIcon label="A" val={dailyTotals.vitA} />
+                    <VitIcon label="C" val={dailyTotals.vitC} />
+                    <VitIcon label="D" val={dailyTotals.vitD} />
+                    <VitIcon label="B12" val={dailyTotals.vitB12} />
+                </div>
+            </div>
+
             <LogList 
               logs={todaysLogs} 
               onDelete={handleDelete} 
@@ -182,16 +232,10 @@ export default function Dashboard({ userId, onSignOut }) {
             <WaterTracker userId={userId} date={selectedDate} />
             <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-50 space-y-6">
                 <div className="space-y-4">
-                    <button 
-                      onClick={() => setIsScanning(true)} 
-                      className="w-full h-20 bg-blue-600 rounded-3xl text-white font-black flex items-center justify-center gap-4 active:scale-95 transition-all text-lg shadow-lg shadow-blue-100"
-                    >
+                    <button onClick={() => setIsScanning(true)} className="w-full h-20 bg-blue-600 rounded-3xl text-white font-black flex items-center justify-center gap-4 active:scale-95 transition-all text-lg shadow-lg shadow-blue-100">
                         <span className="text-2xl">📷</span> SCAN BARCODE
                     </button>
-                    <button 
-                      onClick={() => setIsManualEntryOpen(true)} 
-                      className="w-full h-16 bg-slate-50 border-2 border-slate-100 rounded-3xl text-slate-600 font-black flex items-center justify-center gap-3 active:scale-95 transition-all"
-                    >
+                    <button onClick={() => setIsManualEntryOpen(true)} className="w-full h-16 bg-slate-50 border-2 border-slate-100 rounded-3xl text-slate-600 font-black flex items-center justify-center gap-3 active:scale-95 transition-all">
                         <span>✏️</span> SEARCH / MANUAL
                     </button>
                 </div>
@@ -224,14 +268,13 @@ export default function Dashboard({ userId, onSignOut }) {
 
       {isSettingsOpen && <SettingsModal userId={userId} currentProfile={userData?.profile} onClose={() => setIsSettingsOpen(false)} />}
       
-      {/* SCANNER HAND-OFF WITH DATA NORMALIZATION */}
       {isScanning && (
         <BarcodeScanner 
           onResult={(p) => {
-            // Normalize the nutriment keys before sending to the ManualEntry modal
             const normalizedProduct = {
               ...p,
               nutriments: {
+                ...p.nutriments, // Preserve all raw micro data
                 'energy-kcal_100g': p.nutriments['energy-kcal_serving'] || p.nutriments['energy-kcal_100g'] || 0,
                 'proteins_100g': p.nutriments['proteins_serving'] || p.nutriments['proteins_100g'] || 0,
                 'carbohydrates_100g': p.nutriments['carbohydrates_serving'] || p.nutriments['carbohydrates_100g'] || 0,
@@ -258,4 +301,23 @@ export default function Dashboard({ userId, onSignOut }) {
       )}
     </main>
   );
+}
+
+// Sub-components for Micro Display
+function MicroStat({ label, value, unit, color }) {
+    return (
+      <div className="text-center">
+        <p className="text-[9px] font-black text-slate-300 uppercase mb-1">{label}</p>
+        <p className={`text-sm font-black ${color}`}>{Math.round(value || 0)}<span className="text-[10px] ml-0.5">{unit}</span></p>
+      </div>
+    );
+}
+  
+function VitIcon({ label, val }) {
+    const hasValue = val > 0;
+    return (
+      <div className={`flex flex-col items-center p-2 rounded-2xl transition-all ${hasValue ? 'bg-yellow-50 border border-yellow-100' : 'opacity-20 grayscale'}`}>
+        <span className={`text-[10px] font-black ${hasValue ? 'text-yellow-700' : 'text-slate-400'}`}>{label}</span>
+      </div>
+    );
 }
