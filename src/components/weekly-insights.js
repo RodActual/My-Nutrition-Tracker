@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
@@ -12,22 +12,70 @@ export default function WeeklyInsights({ userId, dailyCalorieTarget }) {
   const [loading, setLoading] = useState(true);
 
   // Helper to determine how many days are in the current selection
-  const getDaysInPeriod = () => {
+  const getDaysInPeriod = useCallback(() => {
     const now = new Date();
     if (viewMode === 'Today') return 1;
     if (viewMode === 'Current Week') return now.getDay() + 1; // Days since Sunday
     if (viewMode === 'Current Month') return now.getDate(); // Days since 1st
     return 1;
-  };
+  }, [viewMode]);
 
   const daysCount = getDaysInPeriod();
 
-  // Targets are now calculated as DAILY averages for the macro bars
+  // Targets calculated as DAILY averages
   const dailyTargets = {
     protein: (dailyCalorieTarget * 0.30) / 4,
     carbs: (dailyCalorieTarget * 0.40) / 4,
     fats: (dailyCalorieTarget * 0.30) / 9
   };
+
+  // --- v1.4: processData wrapped in useCallback to satisfy dependency rules ---
+  const processData = useCallback((logs, mode, startDate) => {
+    const dataMap = {};
+    const now = new Date();
+    let totalP = 0, totalC = 0, totalF = 0;
+
+    // 1. Group Calories for the Bar Chart
+    if (mode === 'Today') {
+      for (let i = 0; i < 24; i += 3) dataMap[i] = { label: `${i}:00`, calories: 0 };
+      logs.forEach(log => {
+        const hour = new Date(log.timestamp).getHours();
+        const block = Math.floor(hour / 3) * 3;
+        if (dataMap[block]) dataMap[block].calories += log.calories || 0;
+        totalP += log.protein || 0; totalC += log.carbs || 0; totalF += log.fats || 0;
+      });
+    } else if (mode === 'Current Week') {
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      for (let i = 0; i <= now.getDay(); i++) {
+        const d = new Date(startDate);
+        d.setDate(startDate.getDate() + i);
+        dataMap[days[d.getDay()]] = { label: days[d.getDay()], calories: 0 };
+      }
+      logs.forEach(log => {
+        const dayName = days[new Date(log.timestamp).getDay()];
+        if (dataMap[dayName]) dataMap[dayName].calories += log.calories || 0;
+        totalP += log.protein || 0; totalC += log.carbs || 0; totalF += log.fats || 0;
+      });
+    } else {
+      const lastDay = now.getDate();
+      for (let i = 1; i <= lastDay; i++) dataMap[i.toString()] = { label: i.toString(), calories: 0 };
+      logs.forEach(log => {
+        const dateDay = new Date(log.timestamp).getDate().toString();
+        if (dataMap[dateDay]) dataMap[dateDay].calories += log.calories || 0;
+        totalP += log.protein || 0; totalC += log.carbs || 0; totalF += log.fats || 0;
+      });
+    }
+
+    setChartData(Object.values(dataMap));
+
+    // 2. Average the Macros (Total / Days in selection)
+    const currentDaysCount = getDaysInPeriod(); 
+    setMacroData([
+      { name: 'Protein', avg: totalP / currentDaysCount, target: dailyTargets.protein, color: '#f87171' },
+      { name: 'Carbs', avg: totalC / currentDaysCount, target: dailyTargets.carbs, color: '#34d399' },
+      { name: 'Fats', avg: totalF / currentDaysCount, target: dailyTargets.fats, color: '#fbbf24' }
+    ]);
+  }, [dailyTargets.protein, dailyTargets.carbs, dailyTargets.fats, getDaysInPeriod]);
 
   useEffect(() => {
     const fetchChartData = async () => {
@@ -64,53 +112,7 @@ export default function WeeklyInsights({ userId, dailyCalorieTarget }) {
     };
 
     fetchChartData();
-  }, [userId, viewMode]);
-
-  const processData = (logs, mode, startDate) => {
-    const dataMap = {};
-    const now = new Date();
-    let totalP = 0, totalC = 0, totalF = 0;
-
-    // 1. Group Calories for the Bar Chart (Total per day/block)
-    if (mode === 'Today') {
-      for (let i = 0; i < 24; i += 3) dataMap[i] = { label: `${i}:00`, calories: 0 };
-      logs.forEach(log => {
-        const hour = new Date(log.timestamp).getHours();
-        const block = Math.floor(hour / 3) * 3;
-        if (dataMap[block]) dataMap[block].calories += log.calories || 0;
-        totalP += log.protein || 0; totalC += log.carbs || 0; totalF += log.fats || 0;
-      });
-    } else if (mode === 'Current Week') {
-      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      for (let i = 0; i <= now.getDay(); i++) {
-        const d = new Date(startDate);
-        d.setDate(startDate.getDate() + i);
-        dataMap[days[d.getDay()]] = { label: days[d.getDay()], calories: 0 };
-      }
-      logs.forEach(log => {
-        const dayName = days[new Date(log.timestamp).getDay()];
-        if (dataMap[dayName]) dataMap[dayName].calories += log.calories || 0;
-        totalP += log.protein || 0; totalC += log.carbs || 0; totalF += log.fats || 0;
-      });
-    } else {
-      const lastDay = now.getDate();
-      for (let i = 1; i <= lastDay; i++) dataMap[i.toString()] = { label: i.toString(), calories: 0 };
-      logs.forEach(log => {
-        const dateDay = new Date(log.timestamp).getDate().toString();
-        if (dataMap[dateDay]) dataMap[dateDay].calories += log.calories || 0;
-        totalP += log.protein || 0; totalC += log.carbs || 0; totalF += log.fats || 0;
-      });
-    }
-
-    setChartData(Object.values(dataMap));
-
-    // 2. Average the Macros for the breakdown (Total / Days in Period)
-    setMacroData([
-      { name: 'Protein', avg: totalP / daysCount, target: dailyTargets.protein, color: '#f87171' },
-      { name: 'Carbs', avg: totalC / daysCount, target: dailyTargets.carbs, color: '#34d399' },
-      { name: 'Fats', avg: totalF / daysCount, target: dailyTargets.fats, color: '#fbbf24' }
-    ]);
-  };
+  }, [userId, viewMode, processData]); // processData added here correctly
 
   return (
     <div className="space-y-6">
@@ -179,7 +181,7 @@ export default function WeeklyInsights({ userId, dailyCalorieTarget }) {
                   <div 
                     className="h-full transition-all duration-1000 rounded-full" 
                     style={{ 
-                        width: `${Math.min((m.avg / m.target) * 100, 100)}%`, 
+                        width: `${Math.min((m.avg / (m.target || 1)) * 100, 100)}%`, 
                         backgroundColor: m.color 
                     }}
                   />
