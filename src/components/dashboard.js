@@ -20,7 +20,7 @@ export default function Dashboard({ userId, onSignOut }) {
   const [dailyTotals, setDailyTotals] = useState({ 
     calories: 0, protein: 0, carbs: 0, fats: 0,
     fiber: 0, sodium: 0, potassium: 0, sugar: 0, calcium: 0, iron: 0, magnesium: 0, zinc: 0,
-    vitA: 0, vitC: 0, vitD: 0, vitE: 0, vitB6: 0, vitB12: 0
+    vitA: 0, vitC: 0, vitD: 0, vitB12: 0
   });
   
   const [currentTab, setCurrentTab] = useState('home'); 
@@ -57,17 +57,15 @@ export default function Dashboard({ userId, onSignOut }) {
       let totals = { 
         calories: 0, protein: 0, carbs: 0, fats: 0,
         fiber: 0, sodium: 0, potassium: 0, sugar: 0, calcium: 0, iron: 0, magnesium: 0, zinc: 0,
-        vitA: 0, vitC: 0, vitD: 0, vitE: 0, vitB6: 0, vitB12: 0
+        vitA: 0, vitC: 0, vitD: 0, vitB12: 0
       };
       const logs = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
-        // Standard Macros
         totals.calories += data.calories || 0;
         totals.protein += data.protein || 0;
         totals.carbs += data.carbs || 0;
         totals.fats += data.fats || 0;
-        // Micronutrients
         totals.fiber += data.fiber || 0;
         totals.sodium += data.sodium || 0;
         totals.potassium += data.potassium || 0;
@@ -76,12 +74,10 @@ export default function Dashboard({ userId, onSignOut }) {
         totals.calcium += data.calcium || 0;
         totals.magnesium += data.magnesium || 0;
         totals.zinc += data.zinc || 0;
-        // Vitamins
         totals.vitA += data.vitA || 0;
         totals.vitC += data.vitC || 0;
         totals.vitD += data.vitD || 0;
         totals.vitB12 += data.vitB12 || 0;
-
         logs.push({ id: doc.id, ...data });
       });
       setDailyTotals(totals);
@@ -92,46 +88,49 @@ export default function Dashboard({ userId, onSignOut }) {
 
   const logFood = async (product, existingLogId = null) => {
     const getNutrient = (keyStub) => {
-        const val = product.nutriments[`${keyStub}_serving`] || product.nutriments[`${keyStub}_100g`] || 0;
+        // Multi-source key check for API vs Database vs Staples
+        const val = product.nutriments?.[`${keyStub}_serving`] || 
+                    product.nutriments?.[`${keyStub}_100g`] || 
+                    product[keyStub] || 0;
         return Number(val);
     };
     
     const foodEntry = {
-      name: product.product_name || "Unknown Item",
-      brand: product.brands || "",
-      calories: Math.round(getNutrient('energy-kcal')),
-      protein: Math.round(getNutrient('proteins')),
-      carbs: Math.round(getNutrient('carbohydrates')),
-      fats: Math.round(getNutrient('fat')),
-      // Micronutrients
+      name: product.product_name || product.name || "Unknown Item",
+      brand: product.brands || product.brand || "",
+      calories: Math.round(getNutrient('energy-kcal') || getNutrient('calories')),
+      protein: Number(getNutrient('proteins') || getNutrient('protein')),
+      carbs: Number(getNutrient('carbohydrates') || getNutrient('carbs')),
+      fats: Number(getNutrient('fat') || getNutrient('fats')),
       fiber: getNutrient('fiber'),
-      sodium: getNutrient('sodium') * (product.brands === 'Manual Entry' ? 1 : 1000), // Adjust if manual entry is already mg
+      sodium: getNutrient('sodium') * (product.source === 'Global' ? 1000 : 1), 
       potassium: getNutrient('potassium'),
-      sugar: getNutrient('sugars'),
+      sugar: getNutrient('sugars') || getNutrient('sugar'),
       iron: getNutrient('iron'),
       calcium: getNutrient('calcium'),
       magnesium: getNutrient('magnesium'),
       zinc: getNutrient('zinc'),
-      // Vitamins
-      vitA: getNutrient('vitamin-a'),
-      vitC: getNutrient('vitamin-c'),
-      vitD: getNutrient('vitamin-d'),
-      vitB12: getNutrient('vitamin-b12'),
+      vitA: getNutrient('vitamin-a') || getNutrient('vitA'),
+      vitC: getNutrient('vitamin-c') || getNutrient('vitC'),
+      vitD: getNutrient('vitamin-d') || getNutrient('vitD'),
+      vitB12: getNutrient('vitamin-b12') || getNutrient('vitB12'),
       date: selectedDate,
       timestamp: editingLog?.timestamp || new Date().toISOString()
     };
 
     try {
-      if (existingLogId) {
+      if (existingLogId && existingLogId !== "new-scan") {
+        // UPDATE Existing
         await updateDoc(doc(db, "users", userId, "logs", existingLogId), foodEntry);
       } else {
+        // CREATE New
         await addDoc(collection(db, "users", userId, "logs"), foodEntry);
-        if (product.product_name) {
-          const productId = product.product_name.toLowerCase().trim();
+        if (foodEntry.name) {
+          const productId = foodEntry.name.toLowerCase().trim();
           await setDoc(doc(db, "products", productId), {
-            product_name: product.product_name,
-            brands: product.brands || "",
-            nutriments: product.nutriments,
+            product_name: foodEntry.name,
+            brands: foodEntry.brand,
+            nutriments: product.nutriments || product,
             lastLogged: new Date().toISOString()
           }, { merge: true });
         }
@@ -187,7 +186,7 @@ export default function Dashboard({ userId, onSignOut }) {
       <div className="p-6 max-w-md mx-auto">
         {currentTab === 'home' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-left duration-300">
-            <nav className="flex items-center justify-between bg-white p-2 rounded-2xl border border-slate-100">
+            <nav className="flex items-center justify-between bg-white p-2 rounded-2xl border border-slate-100 shadow-sm">
               <button onClick={() => changeDate(-1)} className="p-2 text-slate-400">◀</button>
               <p className="text-sm font-black text-slate-800">{isToday ? "Today" : selectedDate}</p>
               <button onClick={() => changeDate(1)} className="p-2 text-slate-400">▶</button>
@@ -197,7 +196,6 @@ export default function Dashboard({ userId, onSignOut }) {
               {userData?.targets && <DailyProgress targets={userData.targets} current={dailyTotals} />}
             </div>
 
-            {/* NEW: Micronutrient Snapshot */}
             <div className="bg-white p-6 rounded-[2rem] shadow-xl shadow-slate-200/50 border border-slate-100">
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Nutrient Snapshot</h3>
                 <div className="grid grid-cols-3 gap-y-6 gap-x-2">
@@ -273,15 +271,16 @@ export default function Dashboard({ userId, onSignOut }) {
           onResult={(p) => {
             const normalizedProduct = {
               ...p,
+              source: 'Global',
               nutriments: {
-                ...p.nutriments, // Preserve all raw micro data
+                ...p.nutriments,
                 'energy-kcal_100g': p.nutriments['energy-kcal_serving'] || p.nutriments['energy-kcal_100g'] || 0,
                 'proteins_100g': p.nutriments['proteins_serving'] || p.nutriments['proteins_100g'] || 0,
                 'carbohydrates_100g': p.nutriments['carbohydrates_serving'] || p.nutriments['carbohydrates_100g'] || 0,
                 'fat_100g': p.nutriments['fat_serving'] || p.nutriments['fat_100g'] || 0,
               }
             };
-            setEditingLog({ product: normalizedProduct, isNewFromScan: true });
+            setEditingLog({ product: normalizedProduct, isNewFromScan: true, id: 'new-scan' });
             setIsScanning(false);
             setIsManualEntryOpen(true);
           }} 
@@ -292,7 +291,7 @@ export default function Dashboard({ userId, onSignOut }) {
       {isManualEntryOpen && (
         <ManualEntry 
           initialData={editingLog}
-          onAdd={(data) => logFood(data, editingLog?.id)} 
+          onAdd={(data, id) => logFood(data, id)} 
           onClose={() => {
             setIsManualEntryOpen(false);
             setEditingLog(null);
@@ -303,7 +302,6 @@ export default function Dashboard({ userId, onSignOut }) {
   );
 }
 
-// Sub-components for Micro Display
 function MicroStat({ label, value, unit, color }) {
     return (
       <div className="text-center">
