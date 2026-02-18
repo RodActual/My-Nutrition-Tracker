@@ -52,11 +52,13 @@ export default function WaterTracker({ userId, date }) {
     <div className="bg-white p-6 rounded-[2rem] shadow-xl shadow-blue-100/50 border border-blue-50">
       <div className="flex justify-between items-end mb-6">
         <div>
-          <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Hydration</h3>
+          {/* Changed text-black-400 to text-black for the label */}
+          <h3 className="text-xs font-black text-black uppercase tracking-widest mb-1">Hydration</h3>
           <p className="text-3xl font-black text-blue-600 leading-none">{total}<span className="text-sm ml-1 text-blue-300 font-bold uppercase">oz</span></p>
         </div>
         <div className="text-right">
-          <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Daily Goal: {goal}oz</p>
+          {/* Changed text-slate-300 to text-black for the goal reference */}
+          <p className="text-[10px] font-black text-black uppercase tracking-tighter opacity-40">Daily Goal: {goal}oz</p>
         </div>
       </div>
 

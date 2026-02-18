@@ -5,6 +5,7 @@ import { db } from '@/lib/firebase';
 import { doc, onSnapshot, collection, addDoc, deleteDoc, query, where, orderBy, setDoc, updateDoc } from 'firebase/firestore';
 import DailyProgress from './daily-progress';
 import BarcodeScanner from './barcode-scanner';
+import LabelScanner from './label-scanner'; // Added OCR Scanner Import
 import WeightReminderBanner from './weight-reminder-banner';
 import ManualEntry from './manual-entry';
 import LogList from './log-list';
@@ -27,6 +28,7 @@ export default function Dashboard({ userId, onSignOut }) {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
   const [isScanning, setIsScanning] = useState(false);
+  const [isLabelScanning, setIsLabelScanning] = useState(false); // Added OCR State
   const [isManualEntryOpen, setIsManualEntryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -88,7 +90,6 @@ export default function Dashboard({ userId, onSignOut }) {
 
   const logFood = async (product, existingLogId = null) => {
     const getNutrient = (keyStub) => {
-        // Multi-source key check for API vs Database vs Staples
         const val = product.nutriments?.[`${keyStub}_serving`] || 
                     product.nutriments?.[`${keyStub}_100g`] || 
                     product[keyStub] || 0;
@@ -120,10 +121,8 @@ export default function Dashboard({ userId, onSignOut }) {
 
     try {
       if (existingLogId && existingLogId !== "new-scan") {
-        // UPDATE Existing
         await updateDoc(doc(db, "users", userId, "logs", existingLogId), foodEntry);
       } else {
-        // CREATE New
         await addDoc(collection(db, "users", userId, "logs"), foodEntry);
         if (foodEntry.name) {
           const productId = foodEntry.name.toLowerCase().trim();
@@ -233,6 +232,13 @@ export default function Dashboard({ userId, onSignOut }) {
                     <button onClick={() => setIsScanning(true)} className="w-full h-20 bg-blue-600 rounded-3xl text-white font-black flex items-center justify-center gap-4 active:scale-95 transition-all text-lg shadow-lg shadow-blue-100">
                         <span className="text-2xl">📷</span> SCAN BARCODE
                     </button>
+                    {/* Added OCR Scanner Button */}
+                    <button 
+                      onClick={() => setIsLabelScanning(true)} 
+                      className="w-full h-16 bg-slate-800 border-2 border-slate-700 rounded-3xl text-white font-black flex items-center justify-center gap-3 active:scale-95 transition-all"
+                    >
+                        <span>📸</span> SCAN NUTRITION FACTS
+                    </button>
                     <button onClick={() => setIsManualEntryOpen(true)} className="w-full h-16 bg-slate-50 border-2 border-slate-100 rounded-3xl text-slate-600 font-black flex items-center justify-center gap-3 active:scale-95 transition-all">
                         <span>✏️</span> SEARCH / MANUAL
                     </button>
@@ -285,6 +291,18 @@ export default function Dashboard({ userId, onSignOut }) {
             setIsManualEntryOpen(true);
           }} 
           onClose={() => setIsScanning(false)} 
+        />
+      )}
+
+      {/* Added OCR Scanner Component Handler */}
+      {isLabelScanning && (
+        <LabelScanner 
+          onResult={(p) => {
+            setEditingLog({ product: p, isNewFromScan: true, id: 'new-scan' });
+            setIsLabelScanning(false);
+            setIsManualEntryOpen(true);
+          }}
+          onClose={() => setIsLabelScanning(false)}
         />
       )}
 

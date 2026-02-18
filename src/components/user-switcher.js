@@ -12,14 +12,16 @@ export default function UserSwitcher({ onSelect }) {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-6">
-      <h1 className="text-3xl font-bold mb-8">Who is tracking today?</h1>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6">
+      <h1 className="text-3xl font-black mb-8 text-black uppercase tracking-tight">
+        Who is tracking today?
+      </h1>
       <div className="grid grid-cols-1 gap-4 w-full max-w-xs">
         {users.map((user) => (
           <button
             key={user.id}
             onClick={() => handleSelect(user.id)}
-            className="bg-white p-6 rounded-2xl shadow-sm text-xl font-semibold hover:bg-blue-50 transition border-2 border-transparent hover:border-blue-400"
+            className="bg-white p-6 rounded-3xl shadow-xl shadow-slate-200/50 text-xl font-black text-black hover:bg-blue-600 hover:text-white transition-all active:scale-95 border-2 border-transparent"
           >
             {user.name}
           </button>
